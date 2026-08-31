@@ -5,7 +5,7 @@
 #include <chrono>
 
 #ifdef _WIN32
-// Windows uses WSAPoll
+// win32 uses WSAPoll
 #else
 #include <poll.h>
 #endif
@@ -227,7 +227,7 @@ private:
 void EventLoop::checkTimeouts() {
     std::vector<SOCKET_TYPE> to_remove;
     for (const auto& pair : connections_) {
-        // Idle timeout for slowloris protection (e.g. 5 seconds)
+        // nuke idle connections (slowloris)
         if (pair.second->isIdle(5)) {
             to_remove.push_back(pair.first);
         }

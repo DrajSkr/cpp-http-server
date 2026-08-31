@@ -43,16 +43,16 @@ void Connection::onReadReady() {
     if (bytesRead > 0) {
         readBuffer_.append(buffer, bytesRead);
         
-        // Simple state machine: wait for complete HTTP headers
+        // check if headers are fully received
         if (readBuffer_.find("\r\n\r\n") != std::string::npos) {
             processRequest();
         }
     } else if (bytesRead == 0) {
-        // Client disconnected gracefully
+        // client dropped
         isClosing_ = true;
         loop_->removeConnection(fd_);
     } else {
-        // Error or EAGAIN/WSAEWOULDBLOCK
+        // hit eagain or real error
 #ifdef _WIN32
         int err = WSAGetLastError();
         if (err != WSAEWOULDBLOCK) {
@@ -82,12 +82,9 @@ void Connection::onWriteReady() {
         writeBuffer_.erase(0, bytesSent);
         
         if (writeBuffer_.empty()) {
-            // Done writing. We can either keep-alive or close. 
-            // For this project, HTTP/1.1 usually keep-alive, but let's assume we close after response for simplicity,
-            // or wait for the next request. Let's just wait for next request (keep-alive).
-            // We need to switch monitoring back to READ only.
+            // done writing, switch back to read
             loop_->modifyConnection(fd_, 1); // 1 = READ
-            readBuffer_.clear(); // Very rudimentary reset, assume full request was parsed
+            readBuffer_.clear(); // reset state for next req
         }
     } else {
 #ifdef _WIN32
@@ -107,10 +104,10 @@ void Connection::onWriteReady() {
 
 void Connection::enqueueResponse(const std::string& data) {
     writeBuffer_.append(data);
-    loop_->modifyConnection(fd_, 3); // 3 = READ | WRITE
+    loop_->modifyConnection(fd_, 3); // 3 = IN | OUT
 }
 
 void Connection::processRequest() {
-    // Pass the full request to the handler
+    // dispatch to handler
     handleClientRequest(shared_from_this(), readBuffer_);
 }

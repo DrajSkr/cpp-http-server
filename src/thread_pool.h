@@ -13,7 +13,7 @@ class ThreadPool {
 public:
     explicit ThreadPool(size_t numThreads = std::thread::hardware_concurrency()) : stop(false) {
         if (numThreads == 0) {
-            numThreads = 8; // fallback if hardware_concurrency() returns 0
+            numThreads = 8; // fallback
         }
         std::cout << "[ThreadPool] Starting with " << numThreads << " worker threads." << std::endl;
         for (size_t i = 0; i < numThreads; ++i) {
@@ -37,7 +37,7 @@ public:
         }
     }
 
-    // Prevent copying
+    // no copy
     ThreadPool(const ThreadPool&) = delete;
     ThreadPool& operator=(const ThreadPool&) = delete;
 
@@ -53,7 +53,7 @@ public:
         condition.notify_one();
     }
 
-    // Returns current number of pending tasks in the queue
+    // num pending tasks
     size_t pendingTasks() const {
         std::unique_lock<std::mutex> lock(queue_mutex);
         return tasks.size();

@@ -1,28 +1,16 @@
 #pragma once
 
-// ============================================================
-// platform.h — Cross-platform socket abstraction
-//
-// Centralizes all #ifdef _WIN32 logic so the rest of the
-// codebase can use a single, portable API:
-//
-//   SOCKET_TYPE   — socket descriptor type
-//   INVALID_SOCK  — sentinel value for failed socket calls
-//   closeSocket() — close a socket descriptor
-//   initPlatform()    — call once at startup (WSAStartup on Win)
-//   cleanupPlatform() — call once at shutdown (WSACleanup on Win)
-// ============================================================
-
+// socket helpers to hide win32/posix differences
 #ifdef _WIN32
     // --- Windows (Winsock2) ---
-    // winsock2.h MUST come before windows.h to avoid conflicts
+    // MUST precede windows.h
     #ifndef WIN32_LEAN_AND_MEAN
         #define WIN32_LEAN_AND_MEAN
     #endif
     #include <winsock2.h>
     #include <ws2tcpip.h>
 
-    // Link against the Winsock2 library automatically (MSVC)
+    // link ws2_32
     #pragma comment(lib, "ws2_32.lib")
 
     using SOCKET_TYPE = SOCKET;
@@ -58,11 +46,11 @@
     constexpr SOCKET_TYPE INVALID_SOCK = -1;
 
     inline bool initPlatform() {
-        return true; // No initialization needed on POSIX
+        return true; // no-op on posix
     }
 
     inline void cleanupPlatform() {
-        // No cleanup needed on POSIX
+        // no-op
     }
 
     inline int closeSocket(SOCKET_TYPE sock) {

@@ -17,7 +17,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // Set globals for connection routes to use
+    // setup args for routes
     Connection::server_argc = argc;
     Connection::server_argv = argv;
 
@@ -55,7 +55,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // High backlog for C10K
+    // backlog
     int connection_backlog = 10000;
     if (listen(server_fd, connection_backlog) != 0) {
         std::cerr << "listen failed\n";
@@ -69,7 +69,7 @@ int main(int argc, char **argv)
     auto loop = EventLoop::create();
     loop->addServerSocket(server_fd);
     
-    // Blocking call to run the event loop indefinitely
+    // spin forever
     loop->run();
 
     closeSocket(server_fd);

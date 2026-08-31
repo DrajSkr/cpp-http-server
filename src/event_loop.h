@@ -14,7 +14,7 @@ class EventLoop {
 public:
     virtual ~EventLoop() = default;
 
-    // Events: 1 = READ, 2 = WRITE, 3 = READ | WRITE
+    // 1=IN, 2=OUT, 3=BOTH
     virtual void addServerSocket(SOCKET_TYPE fd) = 0;
     virtual void addConnection(SOCKET_TYPE fd, std::shared_ptr<Connection> conn, int events) = 0;
     virtual void modifyConnection(SOCKET_TYPE fd, int events) = 0;

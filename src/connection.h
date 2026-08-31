@@ -26,7 +26,7 @@ public:
 
     void runInLoop(std::function<void()> task);
 
-    // Globals for routing
+    // routing globals
     static int server_argc;
     static char** server_argv;
 
