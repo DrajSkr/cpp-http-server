@@ -37,3 +37,5 @@ build/
 .cache/
 vcpkg/
 vcpkg_installed/
+*.avi
+src/server
