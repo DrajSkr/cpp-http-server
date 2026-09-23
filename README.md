@@ -1,75 +1,77 @@
-[![progress-banner](https://backend.codecrafters.io/progress/http-server/c40e280b-14bd-434d-bb41-fb0fb7c494c3)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# HTTP Server in C++
 
-This is a starting point for C++ solutions to the
-["Build Your Own HTTP server" Challenge](https://app.codecrafters.io/courses/http-server/overview).
+This project is a custom HTTP/1.1 server implemented in C++ (using C++20). It was originally built as a solution to the ["Build Your Own HTTP server" Challenge](https://app.codecrafters.io/courses/http-server/overview) and has been extended with an event-driven architecture, a custom thread pool, and additional routing capabilities.
 
-[HTTP](https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol) is the
-protocol that powers the web. In this challenge, you'll build a HTTP/1.1 server
-that is capable of serving multiple clients.
+## Overview
 
-Along the way you'll learn about TCP servers,
-[HTTP request syntax](https://www.w3.org/Protocols/rfc2616/rfc2616-sec5.html),
-and more.
+The server is capable of handling multiple client connections concurrently and efficiently. It uses an **event loop** for non-blocking I/O and a **thread pool** to offload file operations and streaming, preventing the main event loop from blocking.
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+### Features
+- **Concurrent Connections**: Handles multiple connections concurrently using a non-blocking event-driven architecture.
+- **Thread Pool**: Uses a custom thread pool for background tasks like file reading/writing and streaming large files.
+- **Gzip Compression**: Supports gzip compression for responses using `zlib` (e.g., in the `/echo/` route).
+- **Video Streaming**: Asynchronously streams large video files (e.g., `.avi`) in chunks.
+- **Cross-Platform Support**: Includes a platform abstraction layer (`platform.h`), making the socket implementation compatible with both Windows (Winsock2) and POSIX-based systems (Linux/macOS).
 
-# Passing the first stage
+## Endpoints
 
-The entry point for your HTTP server implementation is in `src/server.cpp`.
-Study and uncomment the relevant code, and push your changes to pass the first
-stage:
+The server listens on port `4221` and supports the following routes:
+
+- `GET /`
+  Returns a simple HTML greeting.
+- `GET /echo/{string}`
+  Echoes back the `{string}` in the response. If the client includes `Accept-Encoding: gzip` in the request, the response is compressed using zlib.
+- `GET /user-agent`
+  Reads the `User-Agent` header from the request and returns it as plain text.
+- `GET /files/{filename}`
+  Reads the specified file from the directory provided via command-line arguments and returns its contents.
+- `POST /files/{filename}`
+  Creates or overwrites the specified file in the given directory with the request body.
+- `GET /stream`
+  Streams a video file (`BAIRI_PIYA.avi`) back to the client in asynchronous chunks.
+
+## Build Instructions
+
+### Prerequisites
+- CMake (3.13 or newer)
+- A C++20 compatible compiler (e.g., GCC, Clang, MSVC)
+- [zlib](https://zlib.net/) (can be installed via vcpkg or system package manager)
+
+### Building the Project
+
+1. Ensure you have `cmake` installed locally.
+2. Create a build directory and configure the project:
+   ```sh
+   mkdir build
+   cd build
+   cmake ..
+   ```
+   *(Note: If using vcpkg, the `CMakeLists.txt` automatically detects the vcpkg toolchain if placed in the `vcpkg/` directory).*
+3. Build the server:
+   ```sh
+   cmake --build .
+   ```
+
+## Running the Server
+
+Run the compiled executable. You can optionally specify a directory for the `/files/` route:
 
 ```sh
-git add .
-git commit -m "pass 1st stage" # any msg
-git push origin master
+# Basic run
+./server
+
+# Run with a directory specified for file endpoints
+./server --directory /path/to/serve/files/
 ```
 
-Time to move on to the next stage!
-
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `cmake` installed locally
-1. Run `./your_server.sh` to run your program, which is implemented in
-   `src/server.cpp`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
-
-
-
-# To run in local host
-g++ server.cpp request_handler.cpp -o server -lz
-
-# You’re using WSL (Windows Subsystem for Linux) to run your server, and that changes how networking works, because your server is technically running inside a virtualized Linux environment with its own IP (172.20.176.1).
-
-Find the WSL IP
-
-Inside WSL, run:
-
-`ip addr show eth0`
-
-
-You’ll see something like:
-
-`inet 172.20.176.123/20`
-
-
-That’s your WSL instance’s internal IP.
-
-Create a Port Forward from Windows to WSL
-
-Open PowerShell as Administrator and run:
-
-`netsh interface portproxy add v4tov4 listenport=8000 listenaddress=0.0.0.0 connectport=8000 connectaddress=172.20.176.123`
-
-
-This command forwards all traffic coming to port 8000 on Windows → to your WSL server.
-
-Allow the Port in Windows Firewall 
-
-Also in PowerShell (admin):
-
-`netsh advfirewall firewall add rule name="WSL Port 8000" dir=in action=allow protocol=TCP localport=8000`
+### Running on WSL (Windows Subsystem for Linux)
+If you are running the server inside WSL and want to access it from Windows, you may need to forward the port:
+1. Find your WSL IP using `ip addr show eth0`.
+2. Open Windows PowerShell as Administrator and run:
+   ```ps1
+   netsh interface portproxy add v4tov4 listenport=4221 listenaddress=0.0.0.0 connectport=4221 connectaddress=<WSL_IP>
+   ```
+3. Allow the port in the Windows Firewall:
+   ```ps1
+   netsh advfirewall firewall add rule name="WSL Port 4221" dir=in action=allow protocol=TCP localport=4221
+   ```

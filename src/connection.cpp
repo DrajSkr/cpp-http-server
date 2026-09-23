@@ -1,7 +1,7 @@
 #include "connection.h"
 #include "event_loop.h"
 #include "request_handler.h"
-#include <iostream>
+// #include <iostream>
 
 int Connection::server_argc = 0;
 char** Connection::server_argv = nullptr;
