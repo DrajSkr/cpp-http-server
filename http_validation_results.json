@@ -1,0 +1,43 @@
+{
+  "throughput": {
+    "attempted": 5000,
+    "ok_200": 5000,
+    "other_statuses": {
+      "200": 5000
+    },
+    "errors": {},
+    "elapsed_sec": 0.716,
+    "successful_req_per_sec": 6984.67,
+    "complete_body_bytes": 435000,
+    "latency_ms_p50": 7.04,
+    "latency_ms_p95": 13.91,
+    "latency_ms_p99": 65.85,
+    "pass_2200_req_s": true
+  },
+  "simultaneous_connections": {
+    "target": 2000,
+    "tcp_connections_opened": 2000,
+    "validated_complete_http_responses": 2000,
+    "open_errors": {},
+    "response_errors": {},
+    "hold_before_verification_sec": 0.2,
+    "pass_2000_simultaneous": true,
+    "caveat": "Server has a 5-second idle timeout; run locally and keep hold_sec short."
+  },
+  "features": {
+    "gzip_echo": {
+      "status": 200,
+      "content_encoding": "gzip",
+      "decompressed_matches": true
+    },
+    "stream": {
+      "status": 200,
+      "transfer_encoding": "chunked",
+      "content_length": null,
+      "body_bytes_read": 31148316,
+      "interrupted_due_to_test_cap": false,
+      "is_http_chunked": true,
+      "complete_body": true
+    }
+  }
+}
