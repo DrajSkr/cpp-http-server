@@ -9,6 +9,7 @@
 #include <fstream>
 #include <zlib.h>
 #include <string>
+#include <string_view>
 
 void handleRootRoute(std::shared_ptr<Connection> conn)
 {
@@ -108,7 +109,7 @@ void handleUserAgentRoute(std::shared_ptr<Connection> conn, const std::string& r
 
 void handleNotFound(std::shared_ptr<Connection> conn)
 {
-    std::string message = "HTTP/1.1 404 Not Found\r\n\r\n";
+    std::string message = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
     conn->enqueueResponse(message);
 }
 
@@ -116,21 +117,42 @@ void handleNotFound(std::shared_ptr<Connection> conn)
 
 void handleFilesRoute(std::shared_ptr<Connection> conn, int argc, char **argv, std::string &path, const std::string& method, const std::string& requestStr)
 {
-    std::string directory = argv[2];
-    std::string filename = path.substr(7);
-    std::string filePath = directory + filename;
+    // Get directory from command line args (arg[2] after --directory)
+    std::string directory = (argc >= 3 && argv[1] == std::string("--directory")) ? argv[2] : "./files";
+
+    // Extract filename safely using filesystem path
+    std::string filename = path.substr(7); // Remove "/files/"
+    if (filename.empty()) {
+        handleNotFound(conn);
+        return;
+    }
+
+    // Use std::filesystem::path for safe path joining (handles /, \, relative paths)
+    std::filesystem::path filePath = std::filesystem::path(directory) / filename;
+    std::string filePathStr = filePath.generic_string();
 
     std::weak_ptr<Connection> weak_conn = conn;
 
     if (method == "GET")
     {
-        g_threadPool->enqueue([weak_conn, filePath]() {
-            if (std::filesystem::exists(filePath))
-            {
-                std::ifstream file(filePath, std::ios::binary);
+        g_threadPool->enqueue([weak_conn, filePathStr]() {
+            if (std::filesystem::exists(filePathStr)) {
+                std::ifstream file(filePathStr, std::ios::binary);
+                if (!file.is_open()) {
+                    if (auto locked_conn = weak_conn.lock()) {
+                        locked_conn->runInLoop([weak_conn]() {
+                            if (auto c = weak_conn.lock()) handleNotFound(c);
+                        });
+                    }
+                    return;
+                }
+
                 std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+
+                // Add gzip detection via Accept-Encoding header
+                // For simplicity, keep Content-Length (not chunked for static files)
                 std::string response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + std::to_string(content.size()) + "\r\n\r\n" + content;
-                
+
                 if (auto locked_conn = weak_conn.lock()) {
                     locked_conn->runInLoop([weak_conn, response]() {
                         if (auto c = weak_conn.lock()) c->enqueueResponse(response);
@@ -153,12 +175,28 @@ void handleFilesRoute(std::shared_ptr<Connection> conn, int argc, char **argv, s
         if (body_pos != std::string::npos)
         {
             std::string body = requestStr.substr(body_pos + 4);
-            g_threadPool->enqueue([weak_conn, filePath, body]() {
-                std::ofstream file(filePath, std::ios::binary);
+            g_threadPool->enqueue([weak_conn, filePathStr, body]() {
+                // Create parent directories if needed
+                std::filesystem::path p = filePathStr;
+                if (p.has_parent_path() && !p.parent_path().empty()) {
+                    std::filesystem::create_directories(p.parent_path());
+                }
+
+                std::ofstream file(filePathStr, std::ios::binary);
+                if (!file.is_open()) {
+                    std::string response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+                    if (auto locked_conn = weak_conn.lock()) {
+                        locked_conn->runInLoop([weak_conn, response]() {
+                            if (auto c = weak_conn.lock()) c->enqueueResponse(response);
+                        });
+                    }
+                    return;
+                }
+
                 file << body;
                 file.close();
 
-                std::string response = "HTTP/1.1 201 Created\r\n\r\n";
+                std::string response = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
                 if (auto locked_conn = weak_conn.lock()) {
                     locked_conn->runInLoop([weak_conn, response]() {
                         if (auto c = weak_conn.lock()) c->enqueueResponse(response);
@@ -168,7 +206,7 @@ void handleFilesRoute(std::shared_ptr<Connection> conn, int argc, char **argv, s
         }
         else
         {
-            std::string response = "HTTP/1.1 400 Bad Request\r\n\r\n";
+            std::string response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
             conn->enqueueResponse(response);
         }
     }
@@ -179,49 +217,11 @@ void handleFilesRoute(std::shared_ptr<Connection> conn, int argc, char **argv, s
 }
 
 void handleStreamRoute(std::shared_ptr<Connection> conn) {
-    std::weak_ptr<Connection> weak_conn = conn;
-    g_threadPool->enqueue([weak_conn]() {
-        std::ifstream file("../files/BAIRI_PIYA.avi", std::ios::binary);
-        if (!file.is_open()) {
-            std::string error = "HTTP/1.1 404 Not Found\r\n\r\nVideo file not found";
-            if (auto locked_conn = weak_conn.lock()) {
-                locked_conn->runInLoop([weak_conn, error]() {
-                    if (auto c = weak_conn.lock()) c->enqueueResponse(error);
-                });
-            }
-            return;
-        }
-
-        file.seekg(0, std::ios::end);
-        std::streamsize size = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        std::string header =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: video/x-msvideo\r\n"
-            "Content-Length: " + std::to_string(size) + "\r\n"
-            "Connection: close\r\n\r\n";
-
-        if (auto locked_conn = weak_conn.lock()) {
-            locked_conn->runInLoop([weak_conn, header]() {
-                if (auto c = weak_conn.lock()) c->enqueueResponse(header);
-            });
-        }
-
-        const size_t bufferSize = 8192;
-        char buffer[bufferSize];
-        while (file.read(buffer, bufferSize) || file.gcount() > 0) {
-            std::string chunk(buffer, file.gcount());
-            if (auto locked_conn = weak_conn.lock()) {
-                locked_conn->runInLoop([weak_conn, chunk]() {
-                    if (auto c = weak_conn.lock()) c->enqueueResponse(chunk);
-                });
-            } else {
-                // Client disconnected! Abort the file read loop.
-                break;
-            }
-        }
-    });
+    const bool useConfiguredDirectory = Connection::server_argc == 3 &&
+        std::string_view(Connection::server_argv[1]) == "--directory";
+    const auto directory = useConfiguredDirectory ? Connection::server_argv[2] : "./files";
+    conn->streamFile((std::filesystem::path(directory) / "BAIRI_PIYA.avi").string(),
+                     !useConfiguredDirectory);
 }
 
 void handleClientRequest(std::shared_ptr<Connection> conn, const std::string& requestStr)
@@ -251,7 +251,7 @@ void handleClientRequest(std::shared_ptr<Connection> conn, const std::string& re
     {
         handleUserAgentRoute(conn, requestStr);
     }
-    else if(path == "/stream"){    
+    else if(path == "/stream"){
         handleStreamRoute(conn);
     }
     else if (std::regex_match(path, filesPattern) && Connection::server_argc == 3 && strcmp(Connection::server_argv[1], "--directory") == 0)

@@ -12,7 +12,8 @@ class Connection;
 
 class EventLoop {
 public:
-    virtual ~EventLoop() = default;
+    EventLoop();
+    virtual ~EventLoop();
 
     // 1=IN, 2=OUT, 3=BOTH
     virtual void addServerSocket(SOCKET_TYPE fd) = 0;
@@ -22,16 +23,15 @@ public:
     
     virtual void run() = 0;
 
-    void runInLoop(std::function<void()> task) {
-        std::lock_guard<std::mutex> lock(tasks_mutex_);
-        pending_tasks_.push(std::move(task));
-    }
+    void runInLoop(std::function<void()> task);
 
     static std::unique_ptr<EventLoop> create();
 
 protected:
     std::unordered_map<SOCKET_TYPE, std::shared_ptr<Connection>> connections_;
     void checkTimeouts();
+    void drainWakeup();
+    SOCKET_TYPE wakeupReceiver_ = INVALID_SOCK;
     
     std::queue<std::function<void()>> pending_tasks_;
     std::mutex tasks_mutex_;
@@ -47,4 +47,6 @@ protected:
             tasks.pop();
         }
     }
+private:
+    SOCKET_TYPE wakeupSender_ = INVALID_SOCK;
 };

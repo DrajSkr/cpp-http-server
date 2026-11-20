@@ -10,8 +10,6 @@ ThreadPool* g_threadPool = nullptr;
 
 int main(int argc, char **argv)
 {
-    g_threadPool = new ThreadPool(8);
-
     if (!initPlatform()) {
         std::cerr << "Failed to initialize platform socket library\n";
         return 1;
@@ -70,7 +68,13 @@ int main(int argc, char **argv)
     loop->addServerSocket(server_fd);
     
     // spin forever
-    loop->run();
+    {
+        ThreadPool pool(8);
+        g_threadPool = &pool;
+        loop->run();
+    }
+    g_threadPool = nullptr;
+    loop.reset();
 
     closeSocket(server_fd);
     cleanupPlatform();

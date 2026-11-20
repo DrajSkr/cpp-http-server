@@ -1,10 +1,11 @@
 #pragma once
 
 #include "platform.h"
-#include <string>
-#include <memory>
 #include <chrono>
+#include <fstream>
 #include <functional>
+#include <memory>
+#include <string>
 
 class EventLoop;
 
@@ -15,28 +16,31 @@ public:
 
     void onReadReady();
     void onWriteReady();
-
     void enqueueResponse(const std::string& data);
-    
-    SOCKET_TYPE getFd() const { return fd_; }
+    void streamFile(std::string path, bool allowDefaultFallback);
     void closeConnection();
-
-    void updateLastActiveTime();
     bool isIdle(int timeoutSeconds) const;
-
     void runInLoop(std::function<void()> task);
 
-    // routing globals
     static int server_argc;
     static char** server_argv;
 
 private:
     void processRequest();
+    void updateInterest();
+    void disconnect();
+    void requestStreamRead();
+    void finishWrite();
 
     SOCKET_TYPE fd_;
     EventLoop* loop_;
     std::string readBuffer_;
     std::string writeBuffer_;
-    bool isClosing_;
+    bool responsePending_ = false;
+    bool closeAfterResponse_ = false;
+    std::shared_ptr<std::ifstream> stream_;
+    size_t streamPeakBufferedBytes_ = 0;
+    bool reportStreamPeak_ = false;
+    bool streamReadPending_ = false;
     std::chrono::steady_clock::time_point lastActive_;
 };

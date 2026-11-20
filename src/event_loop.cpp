@@ -3,12 +3,56 @@
 #include <iostream>
 #include <algorithm>
 #include <chrono>
+#include <stdexcept>
 
 #ifdef _WIN32
 // win32 uses WSAPoll
 #else
 #include <poll.h>
 #endif
+
+EventLoop::EventLoop() {
+    // A loopback datagram wakes both epoll and WSAPoll for worker completions.
+    wakeupReceiver_ = socket(AF_INET, SOCK_DGRAM, 0);
+    wakeupSender_ = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    socklen_t length = sizeof(address);
+    if (wakeupReceiver_ == INVALID_SOCK || wakeupSender_ == INVALID_SOCK ||
+        !makeSocketNonBlocking(wakeupReceiver_) || !makeSocketNonBlocking(wakeupSender_) ||
+        bind(wakeupReceiver_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
+        getsockname(wakeupReceiver_, reinterpret_cast<sockaddr*>(&address), &length) != 0 ||
+        connect(wakeupSender_, reinterpret_cast<sockaddr*>(&address), length) != 0 ||
+        getsockname(wakeupSender_, reinterpret_cast<sockaddr*>(&address), &length) != 0 ||
+        connect(wakeupReceiver_, reinterpret_cast<sockaddr*>(&address), length) != 0) {
+        if (wakeupReceiver_ != INVALID_SOCK) closeSocket(wakeupReceiver_);
+        if (wakeupSender_ != INVALID_SOCK) closeSocket(wakeupSender_);
+        throw std::runtime_error("Failed to initialize event loop wakeup");
+    }
+}
+
+EventLoop::~EventLoop() {
+    closeSocket(wakeupReceiver_);
+    closeSocket(wakeupSender_);
+}
+
+void EventLoop::runInLoop(std::function<void()> task) {
+    {
+        std::lock_guard<std::mutex> lock(tasks_mutex_);
+        pending_tasks_.push(std::move(task));
+        if (pending_tasks_.size() > 1) return;
+    }
+    // A full receive queue already has a wakeup pending. The poll timeout
+    // also gives the event loop a chance to collect work if a send fails.
+    const char signal = 0;
+    send(wakeupSender_, &signal, 1, 0);
+}
+
+void EventLoop::drainWakeup() {
+    char signal;
+    while (recv(wakeupReceiver_, &signal, 1, 0) > 0) {}
+}
 
 #ifdef __linux__
 #include <sys/epoll.h>
@@ -20,6 +64,13 @@ public:
         if (epoll_fd_ == -1) {
             std::cerr << "Failed to create epoll file descriptor\n";
             exit(EXIT_FAILURE);
+        }
+        epoll_event wakeup{};
+        wakeup.events = EPOLLIN;
+        wakeup.data.fd = wakeupReceiver_;
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wakeupReceiver_, &wakeup) == -1) {
+            closeSocket(epoll_fd_);
+            throw std::runtime_error("Failed to register event loop wakeup");
         }
     }
 
@@ -61,8 +112,9 @@ public:
     }
 
     void removeConnection(SOCKET_TYPE fd) override {
-        connections_.erase(fd);
         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
+        connections_.at(fd)->closeConnection();
+        connections_.erase(fd);
     }
 
     void run() override {
@@ -82,6 +134,10 @@ public:
             for (int i = 0; i < num_events; i++) {
                 int fd = events[i].data.fd;
 
+                if (fd == wakeupReceiver_) {
+                    drainWakeup();
+                    continue;
+                }
                 if (fd == server_fd_) {
                     if (events[i].events & EPOLLIN) {
                         struct sockaddr_storage client_addr;
@@ -99,7 +155,6 @@ public:
                     if (it != connections_.end()) {
                         auto conn = it->second;
                         if (events[i].events & (EPOLLERR | EPOLLHUP)) {
-                            conn->closeConnection();
                             removeConnection(fd);
                         } else {
                             if (events[i].events & EPOLLIN) {
@@ -124,6 +179,10 @@ private:
 
 class PollBackend : public EventLoop {
 public:
+    PollBackend() {
+        poll_fds_.push_back({wakeupReceiver_, POLLIN, 0});
+    }
+
     void addServerSocket(SOCKET_TYPE fd) override {
         server_fd_ = fd;
         pollfd pfd;
@@ -156,6 +215,7 @@ public:
     }
 
     void removeConnection(SOCKET_TYPE fd) override {
+        connections_.at(fd)->closeConnection();
         connections_.erase(fd);
         poll_fds_.erase(
             std::remove_if(poll_fds_.begin(), poll_fds_.end(),
@@ -186,6 +246,10 @@ public:
             for (const auto& pfd : current_fds) {
                 if (pfd.revents == 0) continue;
 
+                if (pfd.fd == wakeupReceiver_) {
+                    drainWakeup();
+                    continue;
+                }
                 if (pfd.fd == server_fd_) {
                     if (pfd.revents & POLLIN) {
                         struct sockaddr_storage client_addr;
@@ -203,7 +267,6 @@ public:
                     if (it != connections_.end()) {
                         auto conn = it->second;
                         if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-                            conn->closeConnection();
                             removeConnection(pfd.fd);
                         } else {
                             if (pfd.revents & POLLIN) {
@@ -235,8 +298,6 @@ void EventLoop::checkTimeouts() {
 
     for (SOCKET_TYPE fd : to_remove) {
         std::cout << "[Timeout] Reaping idle connection fd=" << fd << "\n";
-        auto conn = connections_[fd];
-        conn->closeConnection();
         removeConnection(fd);
     }
 }
